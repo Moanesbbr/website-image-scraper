@@ -7,6 +7,7 @@ import urllib.parse
 from threading import Thread
 from PIL import Image, ImageTk
 from io import BytesIO
+import re
 
 class ImageScraperGUI:
     def __init__(self, root):
@@ -174,25 +175,53 @@ class ImageScraperGUI:
         
         Thread(target=self.download_images, args=(selected_images, save_dir)).start()
     
+    def clean_filename(self, url):
+        # Remove query parameters
+        url = url.split('?')[0]
+        # Get the base filename
+        filename = os.path.basename(url)
+        # Remove any invalid characters
+        filename = re.sub(r'[<>:"/\\|?*]', '', filename)
+        # If filename is empty or invalid, generate a random one
+        if not filename or filename.startswith('.'):
+            extension = os.path.splitext(url)[1] or '.jpg'
+            if not extension.startswith('.'):
+                extension = '.' + extension
+            filename = f"image_{os.urandom(4).hex()}{extension}"
+        return filename
     def download_images(self, urls, save_dir):
         total = len(urls)
         self.progress['maximum'] = total
         self.progress['value'] = 0
         
+        downloaded = 0
         for i, url in enumerate(urls):
             try:
                 response = requests.get(url)
-                filename = os.path.join(save_dir, f"image_{i+1}{os.path.splitext(url)[1]}")
-                
-                with open(filename, 'wb') as f:
-                    f.write(response.content)
-                
+                if response.status_code == 200:
+                    # Clean the filename
+                    base_filename = self.clean_filename(url)
+                    name, ext = os.path.splitext(base_filename)
+                    
+                    # Ensure unique filename
+                    counter = 1
+                    filename = os.path.join(save_dir, base_filename)
+                    while os.path.exists(filename):
+                        filename = os.path.join(save_dir, f"{name}_{counter}{ext}")
+                        counter += 1
+                    
+                    with open(filename, 'wb') as f:
+                        f.write(response.content)
+                    
+                    downloaded += 1
+                    
                 self.root.after(0, lambda v=i+1: self.progress.configure(value=v))
                 
             except Exception as e:
                 print(f"Error downloading {url}: {e}")
         
-        self.root.after(0, lambda: messagebox.showinfo("Success", "Download completed!"))
+        self.root.after(0, lambda: messagebox.showinfo("Success", 
+            f"Download completed! Successfully downloaded {downloaded} out of {total} images."))
         self.root.after(0, lambda: self.progress.configure(value=0))
 
 if __name__ == "__main__":
